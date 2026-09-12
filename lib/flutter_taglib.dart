@@ -145,6 +145,12 @@ class TagLibFile {
     resetSupportCache();
   }
 
+  /// Returns the error encountered during the most recent [isSupported] probe, if any.
+  static Object? get lastSupportProbeError => _lastSupportProbeError;
+
+  /// Returns the stack trace of the error encountered during the most recent [isSupported] probe, if any.
+  static StackTrace? get lastSupportProbeStackTrace => _lastSupportProbeStackTrace;
+
   /// Returns `true` if the native TagLib library is supported and successfully loaded.
   static bool get isSupported {
     if (_isSupportedCached != null) return _isSupportedCached!;
@@ -157,6 +163,7 @@ class TagLibFile {
       _lastSupportProbeStackTrace = null;
     } catch (e, stackTrace) {
       _logger.warning('flutter_taglib support probe failed: $e');
+      debugPrint('[flutter_taglib] support probe failed: $e');
       _lastSupportProbeError = e;
       _lastSupportProbeStackTrace = stackTrace;
       _isSupportedCached = false;
