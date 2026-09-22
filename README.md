@@ -454,3 +454,15 @@ source, you may still need the necessary build tools/Android NDK toolchain in yo
 ## License
 
 This project is licensed under the Apache 2.0 License. TagLib itself is licensed under LGPL/MPL.
+
+## ClassiPod fork
+
+This branch starts from `1f69a6a80957a9f0fce52f82633cc8ba597ba3b1` of the
+MSOB7YY fork. Native binaries and source archives are mirrored, unchanged, in
+[this repository’s ClassiPod native release](https://github.com/adeeteya/flutter_taglib/releases/tag/classipod-native-v1.5.6).
+The release includes source licenses and `SHA256SUMS`. Build-time downloads use
+this repository, including the modified TagLib 2.3.1-c2 sources and utfcpp 4.0.9.
+
+The plugin supports built-in Kotlin with Flutter 3.47+ and AGP 9+. Legacy Kotlin
+hosts remain supported with Flutter 3.44+ / Dart 3.12+. The example enables
+built-in Kotlin.

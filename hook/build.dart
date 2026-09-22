@@ -6,9 +6,9 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:logging/logging.dart';
 import 'package:hooks/hooks.dart';
 
-const String _prebuiltReleaseTag = 'desktop-binaries-v1.5.6';
+const String _prebuiltReleaseTag = 'classipod-native-v1.5.6';
 const String _githubDownloadBaseUrl =
-    'https://github.com/MSOB7YY/flutter_taglib/releases/download/$_prebuiltReleaseTag';
+    'https://github.com/adeeteya/flutter_taglib/releases/download/$_prebuiltReleaseTag';
 
 /// Android API level the published prebuilt binaries are linked against.
 ///
@@ -124,14 +124,14 @@ void main(List<String> args) async {
       // 1. Download TagLib 2.3
       final taglibZip = File('${cacheDir.path}/taglib.zip');
       final taglibUrl =
-          'https://github.com/MSOB7YY/taglib/archive/refs/tags/v$taglibVersion.zip';
+          '$_githubDownloadBaseUrl/taglib-$taglibVersion.zip';
       print('Downloading TagLib from $taglibUrl...');
       await _downloadFile(taglibUrl, taglibZip);
 
       // 2. Download utfcpp
       final utfcppZip = File('${cacheDir.path}/utfcpp.zip');
       final utfcppUrl =
-          'https://github.com/nemtrif/utfcpp/archive/refs/tags/v$utfcppVersion.zip';
+          '$_githubDownloadBaseUrl/utfcpp-$utfcppVersion.zip';
       print('Downloading utfcpp from $utfcppUrl...');
       await _downloadFile(utfcppUrl, utfcppZip);
 

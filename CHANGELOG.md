@@ -1,3 +1,10 @@
+## Unreleased
+
+- Base the ClassiPod fork on commit 1f69a6a80957a9f0fce52f82633cc8ba597ba3b1.
+- Support built-in Kotlin without applying the legacy Kotlin Android plugin.
+- Require Flutter 3.44 / Dart 3.12; the built-in Kotlin example requires Flutter 3.47.
+- Host the pinned native binaries and TagLib/utfcpp source archives in this fork.
+
 ## 1.5.7
 * fix(android): `UnsupportedError` on `armeabi-v7a` devices
 * fix(android): apps with `minSdk` below 24 now build from source, since the published binaries import libc symbols older devices do not export
