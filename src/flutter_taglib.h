@@ -67,6 +67,10 @@ FFI_PLUGIN_EXPORT int taglib_bridge_get_duration(TagLibBridgeFile* file); // mil
 FFI_PLUGIN_EXPORT int taglib_bridge_get_bitrate(TagLibBridgeFile* file);  // kbps
 FFI_PLUGIN_EXPORT int taglib_bridge_get_samplerate(TagLibBridgeFile* file); // Hz
 FFI_PLUGIN_EXPORT int taglib_bridge_get_channels(TagLibBridgeFile* file);
+// Bits per audio sample of the stored PCM data (e.g. 16/24/32, or 1 for DSD).
+// Returns 0 when the format has no fixed sample size (lossy codecs) or when
+// it is unknown.
+FFI_PLUGIN_EXPORT int taglib_bridge_get_bits_per_sample(TagLibBridgeFile* file);
 FFI_PLUGIN_EXPORT const char* taglib_bridge_get_bitrate_mode(TagLibBridgeFile* file);
 // Audio format detected from the file contents (e.g. "MP3", "FLAC", "OPUS", "AAC").
 // Returns NULL when the format could not be determined.

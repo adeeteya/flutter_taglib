@@ -23,6 +23,8 @@
 #include <mpc/mpcfile.h>
 #include <trueaudio/trueaudiofile.h>
 #include <asf/asffile.h>
+#include <matroska/matroskafile.h>
+#include <matroska/matroskaproperties.h>
 #include <dsf/dsffile.h>
 #include <dsdiff/dsdifffile.h>
 #include <mod/modfile.h>
@@ -385,10 +387,44 @@ static std::string format_token_from_class_name(const std::string& className) {
     return token;
 }
 
+// Maps a Matroska CodecID to the format token the rest of this bridge uses.
+// Prefix matching absorbs the codec-ID variants ("A_AAC/MPEG4/LC",
+// "A_AC3/BSID9", "A_PCM/INT/LIT"). Returns an empty string for codecs this
+// table does not name, so the caller can fall back to the container name.
+static std::string matroska_codec_token(const TagLib::String& codecId) {
+    const std::string codec = codecId.to8Bit(true);
+    static const std::pair<const char*, const char*> prefixTokens[] = {
+        {"A_OPUS", "OPUS"},
+        {"A_VORBIS", "VORBIS"},
+        {"A_AAC", "AAC"},
+        {"A_MPEG/L3", "MP3"},
+        {"A_MPEG/L2", "MP2"},
+        {"A_MPEG/L1", "MP1"},
+        {"A_FLAC", "FLAC"},
+        {"A_ALAC", "ALAC"},
+        {"A_PCM", "PCM"},
+        {"A_EAC3", "EAC3"},
+        {"A_AC3", "AC3"},
+        {"A_DTS", "DTS"},
+        {"A_TRUEHD", "TRUEHD"},
+        {"A_MLP", "MLP"},
+        {"A_WAVPACK4", "WAVPACK"},
+        {"A_TTA1", "TTA"},
+        {"A_MPC", "MPC"},
+    };
+    for (const auto& entry : prefixTokens) {
+        if (codec.compare(0, std::strlen(entry.first), entry.first) == 0) {
+            return entry.second;
+        }
+    }
+    return std::string();
+}
+
 // Maps each concrete TagLib file class to its format token. Matching the exact
 // runtime type turns format detection into a single hash lookup instead of a
 // chain of dynamic_casts, and makes the order of entries irrelevant. Formats
-// whose token depends on the codec (MPEG, MP4) are resolved separately below.
+// whose token depends on the codec (MPEG, MP4, Matroska) are resolved
+// separately below.
 static const std::unordered_map<std::type_index, const char*>& format_token_table() {
     static const std::unordered_map<std::type_index, const char*> table = {
         {std::type_index(typeid(TagLib::FLAC::File)), "FLAC"},
@@ -417,8 +453,8 @@ static const std::unordered_map<std::type_index, const char*>& format_token_tabl
 enum LosslessVerdict { kLossy = 0, kLossless = 1, kLosslessUnknown = -1 };
 
 // Formats whose lossless-ness follows from the format alone. The remaining ones
-// (MP4, WAV, AIFF, WavPack, ASF) can carry either kind of stream and are
-// resolved from their audio properties instead.
+// (MP4, Matroska, WAV, AIFF, WavPack, ASF) can carry either kind of stream and
+// are resolved from their audio properties instead.
 static const std::unordered_map<std::type_index, int>& lossless_table() {
     static const std::unordered_map<std::type_index, int> table = {
         {std::type_index(typeid(TagLib::MPEG::File)), kLossy},
@@ -1719,6 +1755,39 @@ int taglib_bridge_get_channels(TagLibBridgeFile* file) {
     }
 }
 
+int taglib_bridge_get_bits_per_sample(TagLibBridgeFile* file) {
+    if (!file || !file->fileRef || file->fileRef->isNull()) return 0;
+    try {
+        auto props = file->fileRef->audioProperties();
+        if (!props) return 0;
+
+        // TagLib's AudioProperties base class does not expose bit depth, so it
+        // is read from each concrete Properties subclass that has one. Lossy
+        // codecs have no fixed sample size, so MP4 and ASF — whose containers
+        // declare a nominal value even for AAC/WMA — only report their
+        // lossless codecs. Matroska needs no gate: its BitDepth element is
+        // simply absent for lossy tracks.
+        if (auto p = dynamic_cast<TagLib::FLAC::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::MP4::Properties*>(props)) {
+            return p->codec() == TagLib::MP4::Properties::ALAC ? p->bitsPerSample() : 0;
+        }
+        if (auto p = dynamic_cast<TagLib::ASF::Properties*>(props)) {
+            return p->codec() == TagLib::ASF::Properties::WMA9Lossless ? p->bitsPerSample() : 0;
+        }
+        if (auto p = dynamic_cast<TagLib::RIFF::WAV::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::RIFF::AIFF::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::APE::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::WavPack::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::TrueAudio::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::DSF::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::DSDIFF::Properties*>(props)) return p->bitsPerSample();
+        if (auto p = dynamic_cast<TagLib::Matroska::Properties*>(props)) return p->bitsPerSample();
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
 const char* taglib_bridge_get_bitrate_mode(TagLibBridgeFile* file) {
     if (!file || !file->fileRef || file->fileRef->isNull() || !file->fileRef->audioProperties()) return "";
     try {
@@ -1792,6 +1861,21 @@ const char* taglib_bridge_get_format(TagLibBridgeFile* file) {
             } else {
                 file->cachedFormat = "MP4";
             }
+        } else if (fileType == std::type_index(typeid(TagLib::Matroska::File))) {
+            // Matroska is a container, so report the audio codec inside it and
+            // only fall back to the container name (split by EBML doc type)
+            // when the codec is not recognized.
+            auto mkProps = dynamic_cast<TagLib::Matroska::Properties*>(file->fileRef->audioProperties());
+            std::string token = mkProps ? matroska_codec_token(mkProps->codecName()) : std::string();
+            if (!token.empty()) {
+                file->cachedFormat = token;
+            } else if (mkProps && mkProps->docType() == "webm") {
+                file->cachedFormat = "WEBM";
+            } else if (mkProps && mkProps->docType() == "weba") {
+                file->cachedFormat = "WEBA";
+            } else {
+                file->cachedFormat = "MATROSKA";
+            }
         } else {
             const auto& table = format_token_table();
             const auto match = table.find(fileType);
@@ -1844,6 +1928,26 @@ int taglib_bridge_is_lossless(TagLibBridgeFile* file) {
                     case TagLib::ASF::Properties::WMA2:
                     case TagLib::ASF::Properties::WMA9Pro: verdict = kLossy; break;
                     default: verdict = kLosslessUnknown; break;
+                }
+            }
+        } else if (fileType == std::type_index(typeid(TagLib::Matroska::File))) {
+            auto props = dynamic_cast<TagLib::Matroska::Properties*>(audioProps);
+            if (props) {
+                const std::string token = matroska_codec_token(props->codecName());
+                static const std::unordered_map<std::string, int> codecVerdicts = {
+                    {"FLAC", kLossless}, {"ALAC", kLossless}, {"PCM", kLossless},
+                    {"WAVPACK", kLossless}, {"TTA", kLossless}, {"MLP", kLossless},
+                    {"TRUEHD", kLossless},
+                    {"OPUS", kLossy}, {"VORBIS", kLossy}, {"AAC", kLossy},
+                    {"MP1", kLossy}, {"MP2", kLossy}, {"MP3", kLossy},
+                    {"AC3", kLossy}, {"EAC3", kLossy}, {"MPC", kLossy},
+                };
+                if (token == "DTS") {
+                    // Only the DTS-HD Master Audio variant is lossless.
+                    verdict = props->codecName() == "A_DTS/LOSSLESS" ? kLossless : kLossy;
+                } else {
+                    const auto match = codecVerdicts.find(token);
+                    if (match != codecVerdicts.end()) verdict = match->second;
                 }
             }
         } else if (fileType == std::type_index(typeid(TagLib::WavPack::File))) {

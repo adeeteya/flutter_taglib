@@ -3,7 +3,6 @@ version = "1.0"
 
 plugins {
     id("com.android.library")
-    id("kotlin-android")
 }
 
 configure<com.android.build.api.dsl.LibraryExtension> {

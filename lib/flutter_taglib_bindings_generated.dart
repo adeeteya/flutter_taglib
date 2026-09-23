@@ -15,8 +15,10 @@ external ffi.Pointer<TagLibBridgeFile> taglib_bridge_open(
   ffi.Pointer<ffi.Char> filepath,
 );
 
-/// Open a file by file path with audio properties read style option (0=Fast, 1=Average, 2=Accurate, 3=None).
-@ffi.Native<ffi.Pointer<TagLibBridgeFile> Function(ffi.Pointer<ffi.Char>, ffi.Int)>()
+/// Open a file by file path with audio properties read style (0=Fast, 1=Average, 2=Accurate, 3=None).
+@ffi.Native<
+  ffi.Pointer<TagLibBridgeFile> Function(ffi.Pointer<ffi.Char>, ffi.Int)
+>()
 external ffi.Pointer<TagLibBridgeFile> taglib_bridge_open_with_style(
   ffi.Pointer<ffi.Char> filepath,
   int read_style,
@@ -26,7 +28,7 @@ external ffi.Pointer<TagLibBridgeFile> taglib_bridge_open_with_style(
 @ffi.Native<ffi.Pointer<TagLibBridgeFile> Function(ffi.Int)>()
 external ffi.Pointer<TagLibBridgeFile> taglib_bridge_open_fd(int fd);
 
-/// Open a file by File Descriptor (FD) with audio properties read style option.
+/// Open a file by File Descriptor (FD) with audio properties read style.
 @ffi.Native<ffi.Pointer<TagLibBridgeFile> Function(ffi.Int, ffi.Int)>()
 external ffi.Pointer<TagLibBridgeFile> taglib_bridge_open_fd_with_style(
   int fd,
@@ -156,6 +158,14 @@ external int taglib_bridge_get_samplerate(ffi.Pointer<TagLibBridgeFile> file);
 
 @ffi.Native<ffi.Int Function(ffi.Pointer<TagLibBridgeFile>)>()
 external int taglib_bridge_get_channels(ffi.Pointer<TagLibBridgeFile> file);
+
+/// Bits per audio sample of the stored PCM data (e.g. 16/24/32, or 1 for DSD).
+/// Returns 0 when the format has no fixed sample size (lossy codecs) or when
+/// it is unknown.
+@ffi.Native<ffi.Int Function(ffi.Pointer<TagLibBridgeFile>)>()
+external int taglib_bridge_get_bits_per_sample(
+  ffi.Pointer<TagLibBridgeFile> file,
+);
 
 @ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Pointer<TagLibBridgeFile>)>()
 external ffi.Pointer<ffi.Char> taglib_bridge_get_bitrate_mode(

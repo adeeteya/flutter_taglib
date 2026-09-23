@@ -1086,6 +1086,17 @@ class TagLibFile {
     return bindings.taglib_bridge_get_channels(_handle);
   }
 
+  /// Bits per audio sample of the stored PCM data (e.g. 16, 24, or 32, and 1
+  /// for DSD), or `null` when it cannot be determined.
+  ///
+  /// Lossy codecs (MP3, AAC, Opus, Vorbis, WMA) return `null`, since they do
+  /// not store fixed-size samples and bit depth does not apply to them.
+  int? get bitsPerSample {
+    _checkClosed();
+    final value = bindings.taglib_bridge_get_bits_per_sample(_handle);
+    return value > 0 ? value : null;
+  }
+
   /// Bitrate mode (e.g. 'CBR', 'VBR', or 'Unknown').
   String get bitrateMode {
     _checkClosed();
@@ -1142,6 +1153,7 @@ class TagLibFile {
       bitrateMode: bitrateMode,
       sampleRate: sampleRate,
       channels: channels,
+      bitsPerSample: bitsPerSample,
     );
   }
 
@@ -1595,6 +1607,10 @@ class AudioInfo {
   /// The number of channels.
   final int channels;
 
+  /// Bits per audio sample (e.g. 16, 24, or 32, and 1 for DSD), or `null`
+  /// when it does not apply (lossy codecs) or cannot be determined.
+  final int? bitsPerSample;
+
   /// Creates an [AudioInfo] instance representing detailed audio properties.
   AudioInfo({
     required this.format,
@@ -1604,11 +1620,12 @@ class AudioInfo {
     required this.bitrateMode,
     required this.sampleRate,
     required this.channels,
+    this.bitsPerSample,
   });
 
   @override
   String toString() =>
-      'AudioInfo(format: $format, isLossless: $isLossless, duration: $duration, bitrate: $bitrate kbps, bitrateMode: $bitrateMode, sampleRate: $sampleRate Hz, channels: $channels)';
+      'AudioInfo(format: $format, isLossless: $isLossless, duration: $duration, bitrate: $bitrate kbps, bitrateMode: $bitrateMode, sampleRate: $sampleRate Hz, channels: $channels, bitsPerSample: $bitsPerSample)';
 }
 
 /// Dummy class used by Flutter platform registration for Dart-only FFI platforms

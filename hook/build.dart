@@ -6,9 +6,22 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:logging/logging.dart';
 import 'package:hooks/hooks.dart';
 
-const String _prebuiltReleaseTag = 'desktop-binaries-v1.6.0';
+// The hosted binaries predate taglib_bridge_open_http. Keep source builds
+// enabled until a release containing the merged native bridge is available.
+const bool _prebuiltSupportsCurrentBridge = false;
+
+const String _prebuiltReleaseTag = 'classipod-native-v1.5.6';
 const String _githubDownloadBaseUrl =
-    'https://github.com/axel10/flutter_taglib/releases/download/$_prebuiltReleaseTag';
+    'https://github.com/adeeteya/flutter_taglib/releases/download/$_prebuiltReleaseTag';
+
+/// Android API level the published prebuilt binaries are linked against.
+///
+/// This matches the `flutter.minSdkVersion` of the example app the release
+/// workflow builds. Apps with a lower `minSdk` must build from source: the
+/// prebuilt libraries import libc symbols that older devices do not export
+/// (`__register_atfork`, pulled in by `libc++_static`, is API 23), so
+/// `dlopen()` would fail at runtime on those devices.
+const int _prebuiltAndroidNdkApi = 24;
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -30,47 +43,26 @@ void main(List<String> args) async {
 
     final buildDesktopFromSource = _shouldBuildDesktopFromSource();
     if ((targetOSStr == 'windows' || targetOSStr == 'linux') &&
-        !buildDesktopFromSource) {
+        !buildDesktopFromSource &&
+        _prebuiltSupportsCurrentBridge) {
       final archStr = input.config.code.targetArchitecture
           .toString()
           .split('.')
           .last
           .toLowerCase();
       if (archStr == 'x64') {
-        final remoteFileName = targetOSStr == 'windows'
-            ? 'flutter_taglib_windows_x64.dll'
-            : 'libflutter_taglib_linux_x64.so';
-        final localFileName = targetOSStr == 'windows'
-            ? 'flutter_taglib_native.dll'
-            : 'libflutter_taglib_native.so';
-
-        final cacheDir = Directory.fromUri(
-          input.packageRoot.resolve('.dart_tool/flutter_taglib/prebuilt/$_prebuiltReleaseTag/'),
+        await _bundlePrebuiltBinary(
+          input: input,
+          output: output,
+          remoteFileName: targetOSStr == 'windows'
+              ? 'flutter_taglib_windows_x64.dll'
+              : 'libflutter_taglib_linux_x64.so',
+          localFileName: targetOSStr == 'windows'
+              ? 'flutter_taglib_native.dll'
+              : 'libflutter_taglib_native.so',
+          targetOS: targetOSStr,
+          arch: archStr,
         );
-        if (!cacheDir.existsSync()) {
-          cacheDir.createSync(recursive: true);
-        }
-
-        final prebuiltFile = File.fromUri(
-          cacheDir.uri.resolve(localFileName),
-        );
-        if (!prebuiltFile.existsSync()) {
-          final url = '$_githubDownloadBaseUrl/$remoteFileName';
-          print('flutter_taglib: Downloading prebuilt binary from $url...');
-          await _downloadFile(url, prebuiltFile);
-        } else {
-          print('flutter_taglib: Using cached prebuilt binary at ${prebuiltFile.path}');
-        }
-
-        output.assets.code.add(
-          CodeAsset(
-            package: input.packageName,
-            name: '${input.packageName}_bindings_generated.dart',
-            linkMode: DynamicLoadingBundled(),
-            file: prebuiltFile.uri,
-          ),
-        );
-        print('flutter_taglib: Bundled prebuilt binary for $targetOSStr $archStr');
         return;
       } else {
         throw UnsupportedError(
@@ -83,54 +75,42 @@ void main(List<String> args) async {
     final nativeLibraryName = '${packageName}_native';
 
     final buildAndroidFromSource = _shouldBuildAndroidFromSource();
-    if (targetOSStr == 'android' && !buildAndroidFromSource) {
+    if (targetOSStr == 'android' &&
+        !buildAndroidFromSource &&
+        _prebuiltSupportsCurrentBridge) {
       final archStr = input.config.code.targetArchitecture
           .toString()
           .split('.')
           .last
           .toLowerCase();
       final abi = _mapArchitectureToAndroidAbi(archStr);
-      if (abi != null && abi != 'x86') {
-        final remoteFileName = 'libflutter_taglib_android_$abi.so';
-        final localFileName = 'libflutter_taglib_native.so';
-
-        final cacheDir = Directory.fromUri(
-          input.packageRoot.resolve('.dart_tool/flutter_taglib/prebuilt/$_prebuiltReleaseTag/'),
-        );
-        if (!cacheDir.existsSync()) {
-          cacheDir.createSync(recursive: true);
-        }
-
-        final prebuiltFile = File.fromUri(
-          cacheDir.uri.resolve(localFileName),
-        );
-        if (!prebuiltFile.existsSync()) {
-          final url = '$_githubDownloadBaseUrl/$remoteFileName';
-          print('flutter_taglib: Downloading prebuilt Android binary from $url...');
-          await _downloadFile(url, prebuiltFile);
-        } else {
-          print('flutter_taglib: Using cached prebuilt Android binary at ${prebuiltFile.path}');
-        }
-
-        output.assets.code.add(
-          CodeAsset(
-            package: packageName,
-            name: '${packageName}_bindings_generated.dart',
-            linkMode: DynamicLoadingBundled(),
-            file: prebuiltFile.uri,
-          ),
-        );
-        print('flutter_taglib: Bundled prebuilt binary for Android $archStr ($abi)');
-        return;
-      } else {
+      final targetNdkApi = input.config.code.android.targetNdkApi;
+      if (abi == null || abi == 'x86') {
         print(
           'flutter_taglib: No prebuilt Android binary for architecture: $archStr ($abi). Falling back to source build.',
         );
+      } else if (targetNdkApi < _prebuiltAndroidNdkApi) {
+        // Building from source targets the app's own NDK API level, which
+        // keeps the library loadable on the devices the app claims to support.
+        print(
+          'flutter_taglib: Prebuilt Android binaries need minSdk >= $_prebuiltAndroidNdkApi, '
+          'but this app targets $targetNdkApi. Falling back to source build.',
+        );
+      } else {
+        await _bundlePrebuiltBinary(
+          input: input,
+          output: output,
+          remoteFileName: 'libflutter_taglib_android_$abi.so',
+          localFileName: 'libflutter_taglib_native.so',
+          targetOS: targetOSStr,
+          arch: archStr,
+        );
+        return;
       }
     }
 
-    // --- Online Fetch TagLib 2.3 & utfcpp ---
-    final taglibVersion = '2.3';
+    // --- Online Fetch TagLib & utfcpp ---
+    final taglibVersion = '2.3.1-c2';
     final utfcppVersion = '4.0.9';
 
     final cacheDir = Directory('.dart_tool/flutter_taglib');
@@ -151,14 +131,14 @@ void main(List<String> args) async {
       // 1. Download TagLib 2.3
       final taglibZip = File('${cacheDir.path}/taglib.zip');
       final taglibUrl =
-          'https://github.com/taglib/taglib/archive/refs/tags/v$taglibVersion.zip';
+          '$_githubDownloadBaseUrl/taglib-$taglibVersion.zip';
       print('Downloading TagLib from $taglibUrl...');
       await _downloadFile(taglibUrl, taglibZip);
 
       // 2. Download utfcpp
       final utfcppZip = File('${cacheDir.path}/utfcpp.zip');
       final utfcppUrl =
-          'https://github.com/nemtrif/utfcpp/archive/refs/tags/v$utfcppVersion.zip';
+          '$_githubDownloadBaseUrl/utfcpp-$utfcppVersion.zip';
       print('Downloading utfcpp from $utfcppUrl...');
       await _downloadFile(utfcppUrl, utfcppZip);
 
@@ -381,6 +361,153 @@ void main(List<String> args) async {
   });
 }
 
+/// Downloads (and caches) the prebuilt binary for [targetOS]/[arch] and bundles
+/// it as this package's code asset.
+///
+/// The cache directory is keyed by release tag *and* target. A fat Android
+/// build runs this hook once per ABI against the same package root, so a shared
+/// cache path would hand every ABI whichever binary was downloaded first --
+/// shipping e.g. the arm64 library inside `lib/armeabi-v7a/`, where `dlopen()`
+/// then fails. Keying by tag also stops a `_prebuiltReleaseTag` bump from
+/// silently reusing the previous release's binaries.
+Future<void> _bundlePrebuiltBinary({
+  required BuildInput input,
+  required BuildOutputBuilder output,
+  required String remoteFileName,
+  required String localFileName,
+  required String targetOS,
+  required String arch,
+}) async {
+  final cacheDir = Directory.fromUri(
+    input.packageRoot.resolve(
+      '.dart_tool/flutter_taglib/prebuilt/$_prebuiltReleaseTag/$targetOS/$arch/',
+    ),
+  );
+  if (!cacheDir.existsSync()) {
+    cacheDir.createSync(recursive: true);
+  }
+
+  final prebuiltFile = File.fromUri(cacheDir.uri.resolve(localFileName));
+  if (!prebuiltFile.existsSync()) {
+    final url = '$_githubDownloadBaseUrl/$remoteFileName';
+    print('flutter_taglib: Downloading prebuilt binary from $url...');
+    await _downloadFile(url, prebuiltFile);
+  } else {
+    print(
+      'flutter_taglib: Using cached prebuilt binary at ${prebuiltFile.path}',
+    );
+  }
+
+  _verifyBinaryArchitecture(prebuiltFile, targetOS: targetOS, arch: arch);
+
+  output.assets.code.add(
+    CodeAsset(
+      package: input.packageName,
+      name: '${input.packageName}_bindings_generated.dart',
+      linkMode: DynamicLoadingBundled(),
+      file: prebuiltFile.uri,
+    ),
+  );
+  print('flutter_taglib: Bundled prebuilt binary for $targetOS $arch');
+}
+
+/// Throws if [file] is not a native binary for [arch].
+///
+/// Cheap insurance against shipping a library that cannot be loaded: a stale
+/// cache entry, a mismatched release asset, or an error page saved by a proxy
+/// all fail the build here instead of at `dlopen()` time on a user's device.
+void _verifyBinaryArchitecture(
+  File file, {
+  required String targetOS,
+  required String arch,
+}) {
+  final length = file.lengthSync();
+  if (length < 1024) {
+    file.deleteSync();
+    throw StateError(
+      'flutter_taglib: prebuilt binary for $targetOS $arch is only $length '
+      'bytes; the download was truncated. Removed it, please re-run the build.',
+    );
+  }
+
+  final raf = file.openSync();
+  int? actual;
+  int? expected;
+  try {
+    final header = raf.readSync(0x40);
+    final isElf =
+        header.length >= 20 &&
+        header[0] == 0x7F &&
+        header[1] == 0x45 &&
+        header[2] == 0x4C &&
+        header[3] == 0x46;
+    final isPe =
+        header.length >= 0x40 && header[0] == 0x4D && header[1] == 0x5A;
+    if (isElf) {
+      actual = header[18] | (header[19] << 8);
+      expected = _expectedElfMachine(arch);
+    } else if (isPe) {
+      final peOffset =
+          header[0x3C] |
+          (header[0x3D] << 8) |
+          (header[0x3E] << 16) |
+          (header[0x3F] << 24);
+      raf.setPositionSync(peOffset + 4);
+      final machine = raf.readSync(2);
+      if (machine.length == 2) {
+        actual = machine[0] | (machine[1] << 8);
+        expected = _expectedPeMachine(arch);
+      }
+    }
+  } finally {
+    raf.closeSync();
+  }
+
+  if (expected != null && actual != expected) {
+    file.deleteSync();
+    throw StateError(
+      'flutter_taglib: cached binary at ${file.path} is not built for $arch '
+      '(machine 0x${actual!.toRadixString(16)}, expected '
+      '0x${expected.toRadixString(16)}). Removed it, please re-run the build.',
+    );
+  }
+}
+
+/// ELF `e_machine` value expected for a Dart target architecture.
+int? _expectedElfMachine(String arch) {
+  switch (arch) {
+    case 'arm':
+      return 0x28; // EM_ARM
+    case 'arm64':
+      return 0xB7; // EM_AARCH64
+    case 'ia32':
+    case 'x86':
+      return 0x03; // EM_386
+    case 'x64':
+      return 0x3E; // EM_X86_64
+    case 'riscv32':
+    case 'riscv64':
+      return 0xF3; // EM_RISCV
+    default:
+      return null;
+  }
+}
+
+/// PE `Machine` value expected for a Dart target architecture.
+int? _expectedPeMachine(String arch) {
+  switch (arch) {
+    case 'arm64':
+      return 0xAA64;
+    case 'ia32':
+    case 'x86':
+      return 0x014C;
+    case 'x64':
+      return 0x8664;
+    default:
+      return null;
+  }
+}
+
 void _prepareFlattenedWindowsHeaders({
   required Directory taglibRoot,
   required Directory flattenedIncludeDir,
@@ -497,6 +624,7 @@ String? _mapArchitectureToAndroidAbi(String archStr) {
 
 Future<void> _downloadFile(String url, File targetFile) async {
   final client = HttpClient();
+  final partialFile = File('${targetFile.path}.$pid.part');
   try {
     final request = await client.getUrl(Uri.parse(url));
     final response = await request.close();
@@ -504,7 +632,16 @@ Future<void> _downloadFile(String url, File targetFile) async {
       throw Exception('Failed to download from $url: ${response.statusCode}');
     }
     final bytes = await response.fold<List<int>>([], (p, e) => p..addAll(e));
-    await targetFile.writeAsBytes(bytes);
+    await partialFile.writeAsBytes(bytes);
+    if (targetFile.existsSync()) {
+      targetFile.deleteSync();
+    }
+    partialFile.renameSync(targetFile.path);
+  } catch (_) {
+    if (partialFile.existsSync()) {
+      partialFile.deleteSync();
+    }
+    rethrow;
   } finally {
     client.close();
   }

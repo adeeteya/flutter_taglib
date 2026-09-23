@@ -154,6 +154,10 @@ int taglib_bridge_get_channels(ffi.Pointer<TagLibBridgeFile> file) {
   return generated.taglib_bridge_get_channels(file);
 }
 
+int taglib_bridge_get_bits_per_sample(ffi.Pointer<TagLibBridgeFile> file) {
+  return generated.taglib_bridge_get_bits_per_sample(file);
+}
+
 ffi.Pointer<ffi.Char> taglib_bridge_get_bitrate_mode(
   ffi.Pointer<TagLibBridgeFile> file,
 ) {
