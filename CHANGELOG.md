@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Merge HTTP metadata reading and native build fixes from master.
+- Build native assets from source until binaries matching the HTTP bridge are published.
+
 - Base the ClassiPod fork on commit 1f69a6a80957a9f0fce52f82633cc8ba597ba3b1.
 - Support built-in Kotlin without applying the legacy Kotlin Android plugin.
 - Require Flutter 3.44 / Dart 3.12; the built-in Kotlin example requires Flutter 3.47.
@@ -19,6 +22,7 @@
 * core: improve format names for matroska container
 
 ## 1.5.2
+* readBatchAsync enables image extraction option
 * fix: cover not extracted from mp4 in rare cases
 
 ## 1.5.1

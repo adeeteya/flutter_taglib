@@ -508,4 +508,118 @@ void main() {
       }
     });
   });
+
+  group('HTTP Range Streaming', () {
+    late HttpServer server;
+    int totalBytesServed = 0;
+    int rangeRequestCount = 0;
+
+    setUp(() async {
+      totalBytesServed = 0;
+      rangeRequestCount = 0;
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((HttpRequest request) async {
+        final filePath = 'test/assets/01 TempleOS Hymn Risen (Remix).flac';
+        final file = File(filePath);
+        if (!file.existsSync()) {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        final fileLength = await file.length();
+        final rangeHeader = request.headers.value('Range');
+
+        if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+          rangeRequestCount++;
+          final parts = rangeHeader.substring(6).split('-');
+          final start = int.parse(parts[0]);
+          final end = parts.length > 1 && parts[1].isNotEmpty
+              ? int.parse(parts[1])
+              : fileLength - 1;
+          final clampedEnd = end.clamp(start, fileLength - 1);
+          final length = clampedEnd - start + 1;
+
+          final raf = await file.open();
+          await raf.setPosition(start);
+          final bytes = await raf.read(length);
+          await raf.close();
+
+          totalBytesServed += bytes.length;
+
+          request.response.statusCode = HttpStatus.partialContent;
+          request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          request.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $start-$clampedEnd/$fileLength',
+          );
+          request.response.headers.contentLength = bytes.length;
+          request.response.add(bytes);
+          await request.response.close();
+        } else {
+          request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          request.response.headers.contentLength = fileLength;
+          final bytes = await file.readAsBytes();
+          totalBytesServed += bytes.length;
+          request.response.add(bytes);
+          await request.response.close();
+        }
+      });
+    });
+
+    tearDown(() async {
+      await server.close(force: true);
+    });
+
+    test('Read metadata via HTTP Range requests without downloading full song', () async {
+      final url = 'http://127.0.0.1:${server.port}/song.flac';
+      final file = await TagLibFile.openUrlAsync(
+        url,
+        headers: {'Authorization': 'Bearer test-token'},
+      );
+      expect(file, isNotNull);
+      if (file != null) {
+        expect(file.title, equals('TempleOS Hymn Risen (Remix)'));
+        expect(file.artist, equals('Terry A. Davis'));
+        expect(file.duration.inSeconds, greaterThan(0));
+        expect(file.format, equals('FLAC'));
+        expect(file.isLossless, isTrue);
+        file.close();
+      }
+
+      print('HTTP Range Requests count: $rangeRequestCount, Total bytes served: $totalBytesServed');
+      expect(rangeRequestCount, greaterThan(0));
+      expect(totalBytesServed, lessThan(300 * 1024));
+    });
+
+    test('readMetadataAsync reads metadata and cover off-isolate via HTTP Range requests', () async {
+      final url = 'http://127.0.0.1:${server.port}/song.flac';
+      final meta = await TagLibFile.readMetadataAsync(
+        url,
+        headers: {'Authorization': 'Bearer test-token'},
+        readCover: true,
+      );
+      expect(meta, isNotNull);
+      if (meta != null) {
+        expect(meta.success, isTrue);
+        expect(meta.title, equals('TempleOS Hymn Risen (Remix)'));
+        expect(meta.artist, equals('Terry A. Davis'));
+        expect(meta.duration.inSeconds, greaterThan(0));
+      }
+    });
+
+    test('readMetadataAsync reads local file metadata and cover', () async {
+      final meta = await TagLibFile.readMetadataAsync(
+        'test/assets/01 TempleOS Hymn Risen (Remix).mp3',
+        readCover: true,
+      );
+      expect(meta, isNotNull);
+      if (meta != null) {
+        expect(meta.success, isTrue);
+        expect(meta.title, isNotEmpty);
+        expect(meta.artist, isNotEmpty);
+        expect(meta.duration.inSeconds, greaterThan(0));
+      }
+    });
+  });
 }

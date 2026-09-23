@@ -9,10 +9,10 @@ A high-performance, feature-rich Flutter plugin wrapping **TagLib** using Dart F
 > Versions 1.3.0 and 1.3.1 did not download dynamic libraries locally during the build. Windows and Linux users may encounter a missing dynamic library error when starting the app without an internet connection. Please update to the latest version as soon as possible.
 
 > [!NOTE]
-> This package uses a hybrid platform strategy:
->
-> - **Windows/Linux/Android** use prebuilt binaries that are downloaded on demand and cached locally, so host apps do not need to compile TagLib during every build.
-> - **iOS/macOS** continue to rely on native platform builds.
+> This revision builds native assets from source on all enabled platforms.
+> Prebuilt downloads are temporarily disabled until binaries matching the merged
+> HTTP bridge are published. Source archives remain hosted in this fork.
+> Linux source builds require the libcurl development headers and library.
 
 ---
 
@@ -466,3 +466,11 @@ this repository, including the modified TagLib 2.3.1-c2 sources and utfcpp 4.0.9
 The plugin supports built-in Kotlin with Flutter 3.47+ and AGP 9+. Legacy Kotlin
 hosts remain supported with Flutter 3.44+ / Dart 3.12+. The example enables
 built-in Kotlin.
+
+### Native assets after merging HTTP support
+
+This revision builds native assets from source on all enabled platforms. The
+self-hosted `classipod-native-v1.5.6` binaries predate the HTTP bridge and cannot
+be used with the merged API. Prebuilt downloads can be re-enabled once matching
+binaries are published. Source archives remain hosted in this fork. Linux source
+builds require the libcurl development headers and library.

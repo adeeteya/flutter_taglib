@@ -6,6 +6,10 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:logging/logging.dart';
 import 'package:hooks/hooks.dart';
 
+// The hosted binaries predate taglib_bridge_open_http. Keep source builds
+// enabled until a release containing the merged native bridge is available.
+const bool _prebuiltSupportsCurrentBridge = false;
+
 const String _prebuiltReleaseTag = 'classipod-native-v1.5.6';
 const String _githubDownloadBaseUrl =
     'https://github.com/adeeteya/flutter_taglib/releases/download/$_prebuiltReleaseTag';
@@ -39,7 +43,8 @@ void main(List<String> args) async {
 
     final buildDesktopFromSource = _shouldBuildDesktopFromSource();
     if ((targetOSStr == 'windows' || targetOSStr == 'linux') &&
-        !buildDesktopFromSource) {
+        !buildDesktopFromSource &&
+        _prebuiltSupportsCurrentBridge) {
       final archStr = input.config.code.targetArchitecture
           .toString()
           .split('.')
@@ -70,7 +75,9 @@ void main(List<String> args) async {
     final nativeLibraryName = '${packageName}_native';
 
     final buildAndroidFromSource = _shouldBuildAndroidFromSource();
-    if (targetOSStr == 'android' && !buildAndroidFromSource) {
+    if (targetOSStr == 'android' &&
+        !buildAndroidFromSource &&
+        _prebuiltSupportsCurrentBridge) {
       final archStr = input.config.code.targetArchitecture
           .toString()
           .split('.')
@@ -191,6 +198,21 @@ void main(List<String> args) async {
       includes.addAll(sortedIncludeDirs);
     }
 
+    if (targetOSStr == 'linux') {
+      const linuxIncludeDirs = [
+        '/usr/include',
+        '/usr/include/x86_64-linux-gnu',
+        '/usr/include/aarch64-linux-gnu',
+        '/usr/include/arm-linux-gnueabihf',
+        '/usr/local/include',
+      ];
+      for (final dir in linuxIncludeDirs) {
+        if (Directory(dir).existsSync()) {
+          includes.add(dir);
+        }
+      }
+    }
+
     if (targetOSStr == 'windows') {
       final flattenedIncludeDir = Directory(
         '${cacheDir.path}/taglib_flattened_headers',
@@ -305,13 +327,26 @@ void main(List<String> args) async {
       flags: [
         if (!input.config.code.targetOS.toString().contains('windows'))
           '-fvisibility=hidden',
+        if (input.config.code.targetOS.toString().contains('android')) ...[
+          '-Wl,-z,max-page-size=16384',
+        ],
+        if (targetOSStr == 'macos' || targetOSStr == 'ios') ...[
+          '-x',
+          'objective-c++',
+          '-framework',
+          'Foundation',
+        ],
       ],
       libraries: [
-        if (targetOSStr == 'windows') ...taglibLibraries,
+        if (targetOSStr == 'windows') ...[
+          ...taglibLibraries,
+          'winhttp',
+        ],
         if (input.config.code.targetOS.toString().contains('android') ||
             input.config.code.targetOS.toString().contains('linux'))
           'm',
         if (input.config.code.targetOS.toString().contains('android')) 'log',
+        if (input.config.code.targetOS.toString().contains('linux')) 'curl',
       ],
       libraryDirectories: [if (targetOSStr == 'windows') '.'],
     );
